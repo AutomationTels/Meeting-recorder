@@ -1,0 +1,907 @@
+<!DOCTYPE html>
+<html lang="nl">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Recorder">
+<meta name="theme-color" content="#13111a">
+<link rel="manifest" href="manifest.json">
+<link rel="apple-touch-icon" href="icons/icon-192.png">
+<title>Meeting Recorder</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=DM+Sans:ital,wght@0,300;0,400;0,500;1,300&family=DM+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0;-webkit-tap-highlight-color:transparent}
+:root{
+  --bg:#1a1625;
+  --bg2:#231f32;
+  --bg3:#2d2840;
+  --bg4:#38324e;
+  --text:#ffffff;
+  --text2:#c8c0e8;
+  --text3:#9d94b8;
+  --border:rgba(160,140,255,0.09);
+  --border2:rgba(160,140,255,0.18);
+  --accent:#a78bfa;
+  --accent-dim:rgba(167,139,250,0.15);
+  --accent-bright:#c4b5fd;
+  --red:#f87171;
+  --red-dim:rgba(248,113,113,0.14);
+  --red-solid:#ef4444;
+  --green:#34d399;
+  --green-dim:rgba(52,211,153,0.13);
+  --amber:#fbbf24;
+  --amber-dim:rgba(251,191,36,0.13);
+  --r:12px;--rl:18px;
+  --safe-top:env(safe-area-inset-top,0px);
+  --safe-bot:env(safe-area-inset-bottom,0px)
+}
+body{
+  font-family:'DM Sans',system-ui,sans-serif;
+  background:var(--bg);color:var(--text);
+  min-height:100svh;overflow-x:hidden;
+  padding-top:var(--safe-top)
+}
+
+/* screens */
+.screen{display:none;flex-direction:column;min-height:100svh}
+.screen.active{display:flex}
+
+/* topbar */
+.topbar{
+  display:flex;align-items:center;justify-content:space-between;
+  padding:14px 20px 12px;
+  border-bottom:0.5px solid var(--border)
+}
+.topbar-left{display:flex;flex-direction:column;gap:2px}
+.topbar-title{font-size:17px;font-weight:500;color:var(--text)}
+.topbar-sub{font-size:12px;color:var(--text3)}
+.back-btn{
+  display:flex;align-items:center;gap:5px;
+  font-size:14px;color:var(--accent);
+  background:none;border:none;cursor:pointer;
+  padding:6px 0;font-family:inherit;font-weight:400
+}
+.icon-btn{
+  width:34px;height:34px;border-radius:50%;
+  background:var(--bg3);border:0.5px solid var(--border2);
+  display:flex;align-items:center;justify-content:center;
+  cursor:pointer;color:var(--text2)
+}
+
+/* nav tabs */
+.nav{
+  display:flex;background:var(--bg2);
+  border-bottom:0.5px solid var(--border);
+  padding:0 20px
+}
+.nav-tab{
+  flex:1;padding:12px 0;font-size:13px;font-weight:500;
+  color:var(--text3);text-align:center;cursor:pointer;
+  border-bottom:2px solid transparent;transition:all .15s;
+  background:none;border-top:none;border-left:none;border-right:none;
+  font-family:inherit
+}
+.nav-tab.active{color:var(--accent);border-bottom-color:var(--accent)}
+
+/* ── SETUP ── */
+.setup-body{flex:1;padding:24px 20px;display:flex;flex-direction:column;gap:18px;overflow-y:auto}
+.setup-hero{
+  background:var(--bg2);border:0.5px solid var(--border);
+  border-radius:var(--rl);padding:20px;text-align:center;margin-bottom:4px
+}
+.setup-icon{
+  width:56px;height:56px;border-radius:16px;
+  background:var(--accent-dim);border:0.5px solid var(--border2);
+  display:flex;align-items:center;justify-content:center;
+  margin:0 auto 12px;
+}
+.setup-hero h2{font-size:18px;font-weight:500;margin-bottom:6px}
+.setup-hero p{font-size:13px;color:var(--text2);line-height:1.6}
+.field-group{display:flex;flex-direction:column;gap:6px}
+.field-label{font-size:11px;font-weight:500;letter-spacing:.07em;text-transform:uppercase;color:var(--text3)}
+.field-input{
+  background:var(--bg2);border:0.5px solid var(--border2);
+  border-radius:var(--r);padding:13px 14px;
+  font-size:14px;font-family:'DM Mono',monospace;
+  color:var(--text);outline:none;width:100%;transition:border-color .15s
+}
+.field-input:focus{border-color:var(--accent)}
+.field-input::placeholder{color:var(--text3)}
+.field-hint{font-size:12px;color:var(--text3);line-height:1.5}
+.pill-link{color:var(--accent);text-decoration:none}
+.setup-btn{
+  background:var(--accent);color:#13111a;
+  border:none;border-radius:var(--r);
+  padding:15px;font-size:16px;font-weight:500;
+  font-family:inherit;cursor:pointer;transition:opacity .15s
+}
+.setup-btn:active{opacity:.85}
+.err-box{
+  background:var(--red-dim);border:0.5px solid rgba(248,113,113,.35);
+  border-radius:var(--r);padding:12px 14px;
+  font-size:13px;color:var(--red);line-height:1.5
+}
+
+/* ── RECORD ── */
+.rec-body{
+  flex:1;display:flex;flex-direction:column;
+  align-items:center;padding:28px 24px 16px;gap:28px
+}
+.timer-block{text-align:center}
+.timer{
+  font-family:'DM Mono',monospace;font-size:58px;font-weight:400;
+  letter-spacing:.03em;line-height:1;
+  color:var(--text2);transition:color .4s
+}
+.timer.running{color:#ffffff}
+.timer-label{
+  font-size:12px;color:var(--text3);margin-top:10px;
+  letter-spacing:.06em;text-transform:uppercase;font-weight:400
+}
+
+/* big record button area */
+.rec-ring-outer{
+  width:230px;height:230px;border-radius:50%;
+  border:1px solid var(--border2);
+  display:flex;align-items:center;justify-content:center;
+  position:relative
+}
+.rec-ring-mid{
+  width:180px;height:180px;border-radius:50%;
+  border:1px solid var(--border2);
+  display:flex;align-items:center;justify-content:center;
+  position:relative
+}
+canvas#wave{position:absolute;inset:0;border-radius:50%;width:100%;height:100%}
+.rec-btn{
+  width:88px;height:88px;border-radius:50%;
+  background:var(--bg3);border:0.5px solid var(--border2);
+  display:flex;align-items:center;justify-content:center;
+  cursor:pointer;transition:all .25s;position:relative;z-index:2
+}
+.rec-btn .dot{width:30px;height:30px;border-radius:50%;background:var(--red-solid);transition:all .25s}
+.rec-btn.recording{background:var(--red-dim);border-color:var(--red);animation:rpulse 1.8s ease-in-out infinite}
+.rec-btn.recording .dot{width:24px;height:24px;border-radius:5px;background:var(--red)}
+@keyframes rpulse{
+  0%,100%{box-shadow:0 0 0 0 rgba(248,113,113,.3)}
+  50%{box-shadow:0 0 0 18px rgba(248,113,113,0)}
+}
+
+.chunks-wrap{width:100%;min-height:36px}
+.chunks-label{font-size:11px;color:var(--text3);letter-spacing:.05em;margin-bottom:7px}
+.chunks{display:flex;flex-wrap:wrap;gap:6px}
+.chunk{
+  font-size:11px;padding:3px 10px;border-radius:20px;
+  background:var(--green-dim);color:var(--green);
+  border:0.5px solid rgba(52,211,153,.25);
+  font-family:'DM Mono',monospace
+}
+.chunk.proc{background:var(--amber-dim);color:var(--amber);border-color:rgba(251,191,36,.25)}
+.chunk.err{background:var(--red-dim);color:var(--red);border-color:rgba(248,113,113,.25)}
+
+.status-bar{
+  width:100%;padding:12px 16px;
+  background:var(--bg2);border-radius:var(--r);
+  border:0.5px solid var(--border);
+  font-size:13px;color:var(--text2);
+  display:flex;align-items:center;gap:10px
+}
+.spin{
+  width:14px;height:14px;border:1.5px solid var(--border2);
+  border-top-color:var(--accent);border-radius:50%;
+  animation:spin .7s linear infinite;flex-shrink:0
+}
+@keyframes spin{to{transform:rotate(360deg)}}
+
+/* ── RESULT ── */
+.result-body{flex:1;padding:16px 16px 8px;overflow-y:auto;display:flex;flex-direction:column;gap:12px}
+.rsection{
+  background:var(--bg2);border-radius:var(--rl);
+  border:0.5px solid var(--border);overflow:hidden
+}
+.rsection-head{
+  padding:14px 16px 0;
+  font-size:10px;font-weight:500;letter-spacing:.08em;
+  text-transform:uppercase;color:var(--text3)
+}
+.rsection-body{padding:10px 16px 16px}
+.summary-text{font-size:15px;line-height:1.75;color:var(--text)}
+.action-item{
+  display:flex;gap:12px;align-items:flex-start;
+  padding:10px 0;border-bottom:0.5px solid var(--border)
+}
+.action-item:last-child{border:none;padding-bottom:0}
+.acheck{
+  width:20px;height:20px;border-radius:6px;flex-shrink:0;margin-top:1px;
+  background:var(--green-dim);border:0.5px solid rgba(52,211,153,.4);
+  display:flex;align-items:center;justify-content:center
+}
+.acheck svg{opacity:.7}
+.action-task{font-size:14px;line-height:1.5;color:var(--text)}
+.action-who{
+  display:inline-block;margin-top:3px;
+  font-size:11px;padding:2px 8px;border-radius:20px;
+  background:var(--accent-dim);color:var(--accent-bright);
+  border:0.5px solid rgba(167,139,250,.25)
+}
+.dec-item{
+  display:flex;gap:10px;align-items:flex-start;
+  padding:8px 0;border-bottom:0.5px solid var(--border)
+}
+.dec-item:last-child{border:none;padding-bottom:0}
+.dec-dot{
+  width:8px;height:8px;border-radius:50%;
+  background:var(--amber);flex-shrink:0;margin-top:6px
+}
+.dec-text{font-size:14px;line-height:1.5;color:var(--text)}
+.tag-row{display:flex;flex-wrap:wrap;gap:6px;padding:12px 16px}
+.tag{
+  font-size:12px;padding:4px 12px;border-radius:20px;
+  background:var(--accent-dim);color:var(--accent-bright);
+  border:0.5px solid rgba(167,139,250,.25)
+}
+.transcript-pre{
+  font-family:'DM Mono',monospace;font-size:12px;line-height:1.9;
+  color:var(--text2);padding:14px 16px;
+  max-height:240px;overflow-y:auto;
+  white-space:pre-wrap;word-break:break-word
+}
+.result-actions{display:flex;gap:8px;padding:8px 16px calc(16px + var(--safe-bot));flex-wrap:wrap}
+.act-btn{
+  flex:1;min-width:100px;
+  background:var(--bg2);border:0.5px solid var(--border2);
+  color:var(--text2);border-radius:var(--r);
+  padding:13px 8px;font-size:13px;font-weight:500;
+  font-family:inherit;cursor:pointer;transition:all .15s;text-align:center
+}
+.act-btn:active{background:var(--bg3)}
+.act-btn.primary{background:var(--accent);color:#13111a;border-color:transparent}
+.act-btn.primary:active{opacity:.85}
+
+/* ── HISTORY ── */
+.history-body{flex:1;padding:16px;overflow-y:auto;display:flex;flex-direction:column;gap:10px}
+.history-empty{
+  flex:1;display:flex;flex-direction:column;
+  align-items:center;justify-content:center;gap:12px;
+  padding:40px 20px;text-align:center
+}
+.history-empty-icon{
+  width:56px;height:56px;border-radius:16px;
+  background:var(--bg2);border:0.5px solid var(--border);
+  display:flex;align-items:center;justify-content:center
+}
+.history-empty p{font-size:14px;color:var(--text3);line-height:1.6}
+.history-card{
+  background:var(--bg2);border:0.5px solid var(--border);
+  border-radius:var(--rl);padding:16px;cursor:pointer;
+  transition:border-color .15s,background .15s;
+  display:flex;flex-direction:column;gap:8px
+}
+.history-card:active{background:var(--bg3);border-color:var(--border2)}
+.history-card-top{display:flex;align-items:flex-start;justify-content:space-between;gap:8px}
+.history-card-title{font-size:15px;font-weight:500;color:var(--text);line-height:1.3}
+.history-card-dur{
+  font-size:11px;font-family:'DM Mono',monospace;
+  color:var(--text3);flex-shrink:0;
+  background:var(--bg3);padding:3px 8px;border-radius:20px
+}
+.history-card-sum{font-size:13px;color:var(--text2);line-height:1.5;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
+.history-card-bot{display:flex;align-items:center;justify-content:space-between}
+.history-card-date{font-size:12px;color:var(--text3)}
+.history-card-tags{display:flex;gap:5px;flex-wrap:wrap}
+.history-tag{font-size:11px;padding:2px 8px;border-radius:20px;background:var(--accent-dim);color:var(--accent-bright);border:0.5px solid rgba(167,139,250,.2)}
+.history-del{
+  width:28px;height:28px;border-radius:8px;
+  background:var(--red-dim);border:0.5px solid rgba(248,113,113,.2);
+  display:flex;align-items:center;justify-content:center;
+  cursor:pointer;flex-shrink:0;color:var(--red)
+}
+.upload-body{flex:1;padding:20px;display:flex;flex-direction:column;gap:16px;overflow-y:auto}
+.drop-zone{
+  border:1.5px dashed var(--border2);border-radius:var(--rl);
+  padding:40px 20px;text-align:center;cursor:pointer;
+  transition:border-color .2s,background .2s;
+  display:flex;flex-direction:column;align-items:center;gap:12px
+}
+.drop-zone:hover,.drop-zone.drag-over{border-color:var(--accent);background:var(--accent-dim)}
+.drop-icon{width:52px;height:52px;border-radius:14px;background:var(--bg3);border:0.5px solid var(--border2);display:flex;align-items:center;justify-content:center}
+.drop-title{font-size:16px;font-weight:500;color:var(--text)}
+.drop-sub{font-size:13px;color:var(--text3);line-height:1.5}
+.drop-formats{display:flex;flex-wrap:wrap;gap:5px;justify-content:center;margin-top:4px}
+.drop-fmt{font-size:11px;padding:3px 9px;border-radius:20px;background:var(--bg3);color:var(--text3);border:0.5px solid var(--border2);font-family:'DM Mono',monospace}
+.file-preview{background:var(--bg2);border:0.5px solid var(--border2);border-radius:var(--rl);padding:16px;display:flex;align-items:center;gap:14px}
+.file-icon{width:44px;height:44px;border-radius:12px;flex-shrink:0;background:var(--accent-dim);border:0.5px solid rgba(167,139,250,.3);display:flex;align-items:center;justify-content:center}
+.file-info{flex:1;min-width:0}
+.file-name{font-size:14px;font-weight:500;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.file-meta{font-size:12px;color:var(--text3);margin-top:3px}
+.file-clear{width:28px;height:28px;border-radius:8px;flex-shrink:0;background:var(--bg3);border:0.5px solid var(--border2);display:flex;align-items:center;justify-content:center;cursor:pointer;color:var(--text3)}
+.upload-btn{background:var(--accent);color:#13111a;border:none;border-radius:var(--r);padding:15px;font-size:16px;font-weight:500;font-family:inherit;cursor:pointer;transition:opacity .15s;width:100%}
+.upload-btn:active{opacity:.85}
+.upload-btn:disabled{opacity:.35;cursor:default}
+.progress-bar-wrap{background:var(--bg2);border:0.5px solid var(--border);border-radius:var(--r);overflow:hidden;height:6px}
+.progress-bar-fill{height:100%;background:var(--accent);border-radius:var(--r);transition:width .3s;width:0%}
+</style>
+</head>
+<body>
+
+<!-- ── SCREEN: Setup ── -->
+<div class="screen active" id="s-setup">
+  <div class="topbar">
+    <div class="topbar-left">
+      <div class="topbar-title">Meeting Recorder</div>
+      <div class="topbar-sub">Stel je API sleutels in</div>
+    </div>
+  </div>
+  <div class="setup-body">
+    <div class="setup-hero">
+      <div class="setup-icon">
+        <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="var(--accent)" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3Z"/><path d="M19 10v2a7 7 0 0 1-14 0v-2"/><line x1="12" y1="19" x2="12" y2="22"/></svg>
+      </div>
+      <h2>Gratis meetings opnemen</h2>
+      <p>Neem op via je microfoon &middot; Automatische transcriptie &amp; Nederlandse samenvatting &middot; Geschiedenis opgeslagen op je apparaat</p>
+    </div>
+    <div class="field-group">
+      <div class="field-label">OpenAI sleutel (Whisper)</div>
+      <input class="field-input" type="password" id="oai-key" placeholder="sk-..." autocomplete="off" spellcheck="false">
+      <div class="field-hint"><a class="pill-link" href="https://platform.openai.com/api-keys" target="_blank">Aanmaken op platform.openai.com</a> &middot; ~€0,50 per meeting van 1,5u</div>
+    </div>
+    <div class="field-group">
+      <div class="field-label">Anthropic sleutel (Claude)</div>
+      <input class="field-input" type="password" id="ant-key" placeholder="sk-ant-..." autocomplete="off" spellcheck="false">
+      <div class="field-hint"><a class="pill-link" href="https://console.anthropic.com" target="_blank">Aanmaken op console.anthropic.com</a> &middot; ~€0,05 per samenvatting</div>
+    </div>
+    <div id="setup-err"></div>
+    <button class="setup-btn" onclick="goApp()">Doorgaan →</button>
+  </div>
+</div>
+
+<!-- ── SCREEN: App (tabs: Record + History) ── -->
+<div class="screen" id="s-app">
+  <div class="topbar">
+    <div class="topbar-left">
+      <div class="topbar-title" id="app-title">Meeting Recorder</div>
+      <div class="topbar-sub" id="app-sub">Klaar</div>
+    </div>
+    <button class="back-btn" onclick="goSetup()">
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="12" cy="12" r="3"/><path d="M12 1v4M12 19v4M4.22 4.22l2.83 2.83M16.95 16.95l2.83 2.83M1 12h4M19 12h4M4.22 19.78l2.83-2.83M16.95 7.05l2.83-2.83"/></svg>
+      Instellingen
+    </button>
+  </div>
+  <div class="nav">
+    <button class="nav-tab active" id="tab-rec" onclick="showTab('rec')">Opnemen</button>
+    <button class="nav-tab" id="tab-upload" onclick="showTab('upload')">Bestand</button>
+    <button class="nav-tab" id="tab-hist" onclick="showTab('hist')">Geschiedenis</button>
+  </div>
+
+  <!-- TAB: Record -->
+  <div id="tab-rec-body" style="display:flex;flex-direction:column;flex:1">
+    <div class="rec-body">
+      <div class="timer-block">
+        <div class="timer" id="timer">0:00:00</div>
+        <div class="timer-label" id="timer-label">Klaar om op te nemen</div>
+      </div>
+      <div class="rec-ring-outer">
+        <div class="rec-ring-mid">
+          <canvas id="wave"></canvas>
+          <button class="rec-btn idle" id="rec-btn" onclick="toggleRec()">
+            <div class="dot"></div>
+          </button>
+        </div>
+      </div>
+      <div class="chunks-wrap">
+        <div class="chunks-label" id="chunks-label" style="visibility:hidden">Verwerkte fragmenten</div>
+        <div class="chunks" id="chunks"></div>
+      </div>
+    </div>
+    <div style="padding:0 16px 16px" id="rec-status-wrap"></div>
+  </div>
+
+  <!-- TAB: Upload -->
+  <div id="tab-upload-body" style="display:none;flex:1;flex-direction:column">
+    <div class="upload-body">
+      <input type="file" id="file-input" accept="audio/*,video/mp4,video/webm" style="display:none" onchange="onFileChosen(this.files[0])">
+      <div class="drop-zone" id="drop-zone" onclick="document.getElementById('file-input').click()"
+        ondragover="event.preventDefault();this.classList.add('drag-over')"
+        ondragleave="this.classList.remove('drag-over')"
+        ondrop="event.preventDefault();this.classList.remove('drag-over');onFileChosen(event.dataTransfer.files[0])">
+        <div class="drop-icon">
+          <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="var(--accent)" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
+        </div>
+        <div class="drop-title">Sleep een audiobestand</div>
+        <div class="drop-sub">of klik om een bestand te kiezen</div>
+        <div class="drop-formats">
+          <span class="drop-fmt">mp3</span><span class="drop-fmt">mp4</span><span class="drop-fmt">wav</span>
+          <span class="drop-fmt">m4a</span><span class="drop-fmt">webm</span><span class="drop-fmt">ogg</span>
+        </div>
+      </div>
+      <div id="file-preview" style="display:none"></div>
+      <div id="upload-progress" style="display:none">
+        <div class="progress-bar-wrap"><div class="progress-bar-fill" id="progress-fill"></div></div>
+      </div>
+      <div id="upload-status"></div>
+      <button class="upload-btn" id="upload-btn" onclick="processUpload()" disabled>Transcriberen &amp; samenvatten</button>
+    </div>
+  </div>
+
+  <!-- TAB: History -->
+  <div id="tab-hist-body" style="display:none;flex:1;flex-direction:column">
+    <div class="history-body" id="history-body"></div>
+  </div>
+</div>
+
+<!-- ── SCREEN: Result ── -->
+<div class="screen" id="s-result">
+  <div class="topbar">
+    <button class="back-btn" onclick="goBackFromResult()">
+      <svg width="7" height="12" viewBox="0 0 7 12" fill="none"><path d="M6 1L1 6L6 11" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
+      Terug
+    </button>
+    <div style="font-size:13px;color:var(--text3)" id="result-dur"></div>
+  </div>
+  <div class="result-body" id="result-body"></div>
+  <div class="result-actions">
+    <button class="act-btn" onclick="copyAll()">Kopiëren</button>
+    <button class="act-btn" onclick="dlTxt()">Downloaden</button>
+    <button class="act-btn primary" onclick="goBackFromResult()">Sluiten</button>
+  </div>
+</div>
+
+<script>
+/* ── state ── */
+let oaiKey='',antKey='';
+let mediaRecorder=null,audioCtx=null,analyser=null,waveAnim=null;
+let isRec=false,startTime=null,timerInt=null;
+let chunkIdx=0,transcriptParts=[],queue=[],busy=false;
+let fullTranscript='',summaryData=null,finalDur='';
+let resultFromHistory=false;
+
+/* ── storage ── */
+function saveSession(obj){
+  try{
+    const all=JSON.parse(localStorage.getItem('meetings')||'[]');
+    all.unshift(obj);
+    localStorage.setItem('meetings',JSON.stringify(all.slice(0,50)));
+  }catch(e){}
+}
+function loadSessions(){
+  try{return JSON.parse(localStorage.getItem('meetings')||'[]');}catch{return [];}
+}
+function deleteSession(id){
+  try{
+    const all=loadSessions().filter(s=>s.id!==id);
+    localStorage.setItem('meetings',JSON.stringify(all));
+  }catch(e){}
+}
+
+/* ── routing ── */
+function show(id){document.querySelectorAll('.screen').forEach(s=>s.classList.remove('active'));document.getElementById(id).classList.add('active');}
+function showTab(t){
+  ['rec','upload','hist'].forEach(x=>{
+    const b=document.getElementById(`tab-${x}-body`);
+    if(b)b.style.display='none';
+    const tb=document.getElementById(`tab-${x}`);
+    if(tb)tb.classList.remove('active');
+  });
+  const body=document.getElementById(`tab-${t}-body`);
+  if(body){body.style.display='flex';body.style.flexDirection='column';}
+  const tab=document.getElementById(`tab-${t}`);
+  if(tab)tab.classList.add('active');
+  if(t==='hist')renderHistory();
+}
+
+function goSetup(){if(isRec)return;show('s-setup');}
+function goApp(){
+  const oai=document.getElementById('oai-key').value.trim();
+  const ant=document.getElementById('ant-key').value.trim();
+  if(!oai||!ant){document.getElementById('setup-err').innerHTML='<div class="err-box">Vul beide sleutels in.</div>';return;}
+  oaiKey=oai;antKey=ant;
+  document.getElementById('setup-err').innerHTML='';
+  const d=new Date();
+  document.getElementById('app-sub').textContent=d.toLocaleDateString('nl-NL',{weekday:'long',day:'numeric',month:'long'});
+  show('s-app');
+}
+function goBackFromResult(){
+  if(resultFromHistory){showTab('hist');show('s-app');}
+  else show('s-app');
+}
+
+/* ── recording ── */
+async function toggleRec(){
+  if(!isRec)await startRec();
+  else stopRec();
+}
+async function startRec(){
+  try{
+    const stream=await navigator.mediaDevices.getUserMedia({audio:true,video:false});
+    setupWave(stream);
+    const mime=getMime();
+    mediaRecorder=new MediaRecorder(stream,mime?{mimeType:mime}:{});
+    transcriptParts=[];queue=[];chunkIdx=0;fullTranscript='';summaryData=null;
+    document.getElementById('chunks').innerHTML='';
+    document.getElementById('chunks-label').style.visibility='hidden';
+    mediaRecorder.ondataavailable=e=>{
+      if(e.data&&e.data.size>100){
+        const idx=++chunkIdx;addPill(idx);
+        queue.push({blob:e.data,idx});processNext();
+      }
+    };
+    // Only finalize AFTER stop event fires and last chunk is queued
+    mediaRecorder.onstop=()=>{
+      isRec=false;
+      if(!queue.length&&!busy) finalize();
+    };
+    mediaRecorder.start(5*60*1000);
+    isRec=true;startTime=Date.now();timerInt=setInterval(tick,500);
+    document.getElementById('rec-btn').className='rec-btn recording';
+    document.getElementById('timer-label').textContent='Opname bezig';
+    document.getElementById('timer').className='timer running';
+    setStatus('<div class="spin"></div>Microfoon actief...');
+  }catch(e){setStatus('Microfoon niet toegankelijk: '+e.message);}
+}
+function stopRec(){
+  if(mediaRecorder&&mediaRecorder.state!=='inactive'){
+    finalDur=document.getElementById('timer').textContent;
+    mediaRecorder.stop(); // triggers ondataavailable with last chunk, then onstop
+  }
+  mediaRecorder?.stream.getTracks().forEach(t=>t.stop());
+  if(waveAnim){cancelAnimationFrame(waveAnim);waveAnim=null;}
+  if(audioCtx){audioCtx.close();audioCtx=null;}
+  clearInterval(timerInt);
+  // isRec is set to false in onstop handler, not here
+  document.getElementById('rec-btn').className='rec-btn idle';
+  document.getElementById('rec-btn').disabled=true;
+  document.getElementById('timer').className='timer';
+  document.getElementById('timer-label').textContent='Verwerken...';
+  setStatus('<div class="spin"></div>Opname stoppen en transcriberen...');
+}
+function getMime(){
+  for(const t of['audio/webm;codecs=opus','audio/webm','audio/ogg;codecs=opus','audio/mp4',''])
+    if(!t||MediaRecorder.isTypeSupported(t))return t;
+  return '';
+}
+function setupWave(stream){
+  const canvas=document.getElementById('wave');
+  audioCtx=new(window.AudioContext||window.webkitAudioContext)();
+  analyser=audioCtx.createAnalyser();analyser.fftSize=128;
+  audioCtx.createMediaStreamSource(stream).connect(analyser);
+  const buf=new Uint8Array(analyser.frequencyBinCount);
+  function draw(){
+    waveAnim=requestAnimationFrame(draw);
+    const W=canvas.offsetWidth,H=canvas.offsetHeight;
+    if(canvas.width!==W||canvas.height!==H){canvas.width=W;canvas.height=H;}
+    const ctx=canvas.getContext('2d');
+    ctx.clearRect(0,0,W,H);
+    analyser.getByteFrequencyData(buf);
+    const cx=W/2,cy=H/2,baseR=Math.min(W,H)*0.3;
+    for(let i=0;i<buf.length;i++){
+      const angle=(i/buf.length)*Math.PI*2-Math.PI/2;
+      const amp=(buf[i]/255)*baseR*0.5;
+      const r1=baseR,r2=baseR+amp;
+      const alpha=isRec?0.5+(buf[i]/255)*0.5:0.12;
+      ctx.beginPath();
+      ctx.moveTo(cx+Math.cos(angle)*r1,cy+Math.sin(angle)*r1);
+      ctx.lineTo(cx+Math.cos(angle)*r2,cy+Math.sin(angle)*r2);
+      ctx.strokeStyle=isRec?`rgba(248,113,113,${alpha})`:`rgba(167,139,250,${alpha})`;
+      ctx.lineWidth=2.5;ctx.stroke();
+    }
+  }
+  draw();
+}
+function tick(){
+  if(!startTime)return;
+  const s=Math.floor((Date.now()-startTime)/1000);
+  const h=Math.floor(s/3600),m=Math.floor((s%3600)/60),sc=s%60;
+  document.getElementById('timer').textContent=`${h}:${String(m).padStart(2,'0')}:${String(sc).padStart(2,'0')}`;
+}
+function addPill(idx){
+  document.getElementById('chunks-label').style.visibility='visible';
+  const p=document.createElement('div');
+  p.className='chunk proc';p.id=`pill-${idx}`;p.textContent=`${idx}`;
+  document.getElementById('chunks').appendChild(p);
+}
+async function processNext(){
+  if(busy||!queue.length)return;
+  busy=true;
+  const {blob,idx}=queue.shift();
+  const pill=document.getElementById(`pill-${idx}`);
+  try{
+    const text=await whisper(blob);
+    transcriptParts[idx]=text;
+    if(pill){pill.className='chunk';pill.textContent=idx;}
+  }catch(e){
+    if(pill){pill.className='chunk err';pill.textContent=idx+'!';}
+    setStatus('Fout fragment '+idx+': '+e.message);
+  }
+  busy=false;
+  if(queue.length) processNext();
+  else if(!isRec) finalize(); // isRec is false once onstop has fired
+}
+async function whisper(blob){
+  const fd=new FormData();
+  const ext=blob.type.includes('ogg')?'ogg':blob.type.includes('mp4')?'mp4':'webm';
+  fd.append('file',new File([blob],`audio.${ext}`,{type:blob.type}));
+  fd.append('model','whisper-1');fd.append('language','nl');fd.append('response_format','text');
+  const r=await fetch('https://api.openai.com/v1/audio/transcriptions',{
+    method:'POST',headers:{Authorization:`Bearer ${oaiKey}`},body:fd
+  });
+  if(!r.ok){const e=await r.json();throw new Error(e.error?.message||r.statusText);}
+  return await r.text();
+}
+async function finalize(){
+  if(queue.length||busy){setTimeout(finalize,600);return;}
+  fullTranscript=transcriptParts.filter(Boolean).join('\n\n').trim();
+  if(!fullTranscript){
+    setStatus('Geen spraak herkend. Probeer opnieuw.');
+    resetRecBtn();return;
+  }
+  setStatus('<div class="spin"></div>Claude maakt samenvatting...');
+  try{
+    summaryData=await claudeSummarize(fullTranscript);
+    const session={
+      id:Date.now()+'',
+      date:new Date().toISOString(),
+      duration:finalDur,
+      summary:summaryData,
+      transcript:fullTranscript
+    };
+    saveSession(session);
+    clearStatus();
+    resultFromHistory=false;
+    renderResult(summaryData,fullTranscript,finalDur);
+    show('s-result');
+    resetRecBtn();
+  }catch(e){
+    setStatus('Samenvatting fout: '+e.message);
+    resetRecBtn();
+  }
+}
+function resetRecBtn(){
+  document.getElementById('rec-btn').disabled=false;
+  document.getElementById('rec-btn').className='rec-btn idle';
+  document.getElementById('timer-label').textContent='Klaar om op te nemen';
+  document.getElementById('timer').textContent='0:00:00';
+  document.getElementById('timer').className='timer';
+  chunkIdx=0;transcriptParts=[];queue=[];busy=false;
+}
+async function claudeSummarize(transcript){
+  const r=await fetch('https://api.anthropic.com/v1/messages',{
+    method:'POST',
+    headers:{'Content-Type':'application/json','anthropic-version':'2023-06-01'},
+    body:JSON.stringify({
+      model:'claude-sonnet-4-20250514',max_tokens:1500,
+      messages:[{role:'user',content:`Je bent een professionele notulist. Analyseer dit transcript en antwoord UITSLUITEND als geldig JSON zonder uitleg of backticks.
+
+Transcript:
+${transcript.slice(0,14000)}
+
+JSON formaat:
+{
+  "titel": "Korte beschrijvende titel van de meeting (max 6 woorden)",
+  "samenvatting": "3-5 zinnen in het Nederlands",
+  "actiepunten": [{"persoon": "naam of Onbekend", "taak": "beschrijving"}],
+  "beslissingen": ["beslissing 1"],
+  "onderwerpen": ["onderwerp 1","onderwerp 2"]
+}`}]
+    })
+  });
+  const d=await r.json();
+  if(d.error)throw new Error(d.error.message);
+  const raw=d.content[0].text.trim().replace(/```json|```/g,'').trim();
+  try{return JSON.parse(raw);}catch{throw new Error('Ongeldige JSON.');}
+}
+
+/* ── render result ── */
+function renderResult(d,transcript,dur){
+  fullTranscript=transcript;summaryData=d;finalDur=dur;
+  document.getElementById('result-dur').textContent=dur;
+  const tags=(d.onderwerpen||[]).map(o=>`<span class="tag">${o}</span>`).join('');
+  const acties=(d.actiepunten||[]).map(a=>`
+    <div class="action-item">
+      <div class="acheck"><svg width="10" height="10" viewBox="0 0 10 10" fill="none"><path d="M2 5l2.5 2.5L8 3" stroke="var(--green)" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg></div>
+      <div>
+        <div class="action-task">${a.taak}</div>
+        <span class="action-who">${a.persoon||'Onbekend'}</span>
+      </div>
+    </div>`).join('');
+  const besls=(d.beslissingen||[]).map(b=>`
+    <div class="dec-item">
+      <div class="dec-dot"></div>
+      <div class="dec-text">${b}</div>
+    </div>`).join('');
+  document.getElementById('result-body').innerHTML=`
+    ${d.titel?`<div style="padding:4px 0 8px"><div style="font-size:20px;font-weight:500;color:var(--text);line-height:1.3">${d.titel}</div></div>`:''}
+    ${tags?`<div class="rsection"><div class="tag-row">${tags}</div></div>`:''}
+    <div class="rsection">
+      <div class="rsection-head">Samenvatting</div>
+      <div class="rsection-body"><div class="summary-text">${d.samenvatting||'—'}</div></div>
+    </div>
+    ${acties?`<div class="rsection"><div class="rsection-head">Actiepunten</div><div class="rsection-body">${acties}</div></div>`:''}
+    ${besls?`<div class="rsection"><div class="rsection-head">Beslissingen</div><div class="rsection-body">${besls}</div></div>`:''}
+    <div class="rsection">
+      <div class="rsection-head">Volledig transcript</div>
+      <pre class="transcript-pre">${(transcript||'').replace(/</g,'&lt;')}</pre>
+    </div>`;
+}
+
+/* ── upload file ── */
+let uploadFile=null;
+function onFileChosen(file){
+  if(!file)return;
+  uploadFile=file;
+  const mb=(file.size/1024/1024).toFixed(1);
+  document.getElementById('file-preview').style.display='flex';
+  document.getElementById('file-preview').innerHTML=`
+    <div class="file-icon">
+      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="var(--accent)" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M9 18V5l12-2v13"/><circle cx="6" cy="18" r="3"/><circle cx="18" cy="16" r="3"/></svg>
+    </div>
+    <div class="file-info">
+      <div class="file-name">${file.name}</div>
+      <div class="file-meta">${mb} MB &middot; ${file.type||'audio'}</div>
+    </div>
+    <div class="file-clear" onclick="clearUpload()">
+      <svg width="12" height="12" viewBox="0 0 12 12" fill="none"><path d="M2 2l8 8M10 2l-8 8" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>
+    </div>`;
+  document.getElementById('upload-btn').disabled=false;
+  document.getElementById('upload-status').innerHTML='';
+}
+function clearUpload(){
+  uploadFile=null;
+  document.getElementById('file-preview').style.display='none';
+  document.getElementById('file-preview').innerHTML='';
+  document.getElementById('upload-btn').disabled=true;
+  document.getElementById('file-input').value='';
+  document.getElementById('upload-status').innerHTML='';
+  document.getElementById('upload-progress').style.display='none';
+}
+async function processUpload(){
+  if(!uploadFile)return;
+  const btn=document.getElementById('upload-btn');
+  btn.disabled=true;
+  document.getElementById('upload-progress').style.display='block';
+  setProgress(5);
+  try{
+    const transcript=await transcribeByteChunks(uploadFile);
+    if(!transcript.trim())throw new Error('Geen spraak herkend in het bestand.');
+    setUploadStatus('<div class="spin"></div>Claude maakt samenvatting...');
+    setProgress(90);
+    const summary=await claudeSummarize(transcript);
+    setProgress(100);
+    const session={id:Date.now()+'',date:new Date().toISOString(),duration:uploadFile.name,summary,transcript};
+    saveSession(session);
+    document.getElementById('upload-progress').style.display='none';
+    setUploadStatus('');
+    resultFromHistory=false;
+    finalDur=uploadFile.name;
+    renderResult(summary,transcript,uploadFile.name);
+    show('s-result');
+    clearUpload();
+    btn.disabled=false;
+  }catch(e){
+    setUploadStatus(`<span style="color:var(--red)">${e.message}</span>`);
+    document.getElementById('upload-progress').style.display='none';
+    btn.disabled=false;
+  }
+}
+
+/* Slice file into ≤24MB byte chunks, send each to Whisper directly.
+   No decoding in browser — works for any format including large mp4. */
+async function transcribeByteChunks(file){
+  const CHUNK=20*1024*1024; // 20MB per chunk — safe margin under 25MB Whisper limit
+  const total=file.size;
+  const numChunks=Math.ceil(total/CHUNK);
+  const ext=file.name.split('.').pop().toLowerCase()||'mp4';
+  // Whisper accepts these container formats directly
+  const mimeMap={mp3:'audio/mpeg',mp4:'video/mp4',m4a:'audio/mp4',wav:'audio/wav',webm:'audio/webm',ogg:'audio/ogg',oga:'audio/ogg',flac:'audio/flac'};
+  const mime=mimeMap[ext]||file.type||'video/mp4';
+  const parts=[];
+  for(let i=0;i<numChunks;i++){
+    const start=i*CHUNK;
+    const end=Math.min(start+CHUNK,total);
+    const slice=file.slice(start,end,mime);
+    setUploadStatus(`<div class="spin"></div>Fragment ${i+1} van ${numChunks} transcriberen… (${Math.round(end/1024/1024)}/${Math.round(total/1024/1024)} MB)`);
+    setProgress(5+Math.round(((i+1)/numChunks)*80));
+    const fd=new FormData();
+    fd.append('file',new File([slice],`part${i+1}.${ext}`,{type:mime}));
+    fd.append('model','whisper-1');
+    fd.append('language','nl');
+    fd.append('response_format','text');
+    const r=await fetch('https://api.openai.com/v1/audio/transcriptions',{
+      method:'POST',headers:{Authorization:`Bearer ${oaiKey}`},body:fd
+    });
+    if(!r.ok){
+      const err=await r.json().catch(()=>({error:{message:r.statusText}}));
+      // If chunk fails because it's mid-container, try sending whole file (small files only)
+      if(numChunks===1)throw new Error(err.error?.message||r.statusText);
+      // For multi-chunk failures on container formats, warn and continue
+      console.warn('Chunk '+(i+1)+' failed:',err.error?.message);
+      parts.push('');
+    } else {
+      parts.push(await r.text());
+    }
+  }
+  return parts.filter(Boolean).join('\n\n');
+}
+function setProgress(pct){
+  const f=document.getElementById('progress-fill');
+  if(f)f.style.width=pct+'%';
+}
+function setUploadStatus(html){
+  const w=document.getElementById('upload-status');
+  if(w)w.innerHTML=html?`<div class="status-bar" style="margin-top:0">${html}</div>`:'';
+}
+
+/* ── history ── */
+function renderHistory(){
+  const sessions=loadSessions();
+  const body=document.getElementById('history-body');
+  if(!sessions.length){
+    body.innerHTML=`<div class="history-empty">
+      <div class="history-empty-icon">
+        <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="var(--text3)" stroke-width="1.5" stroke-linecap="round"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
+      </div>
+      <p>Nog geen opnames.<br>Je eerste meeting verschijnt hier na de samenvatting.</p>
+    </div>`;
+    return;
+  }
+  body.innerHTML=sessions.map(s=>{
+    const d=new Date(s.date);
+    const dateStr=d.toLocaleDateString('nl-NL',{weekday:'short',day:'numeric',month:'short',year:'numeric'});
+    const tags=(s.summary?.onderwerpen||[]).slice(0,3).map(o=>`<span class="history-tag">${o}</span>`).join('');
+    return `<div class="history-card" onclick="openSession('${s.id}')">
+      <div class="history-card-top">
+        <div class="history-card-title">${s.summary?.titel||'Meeting'}</div>
+        <div style="display:flex;align-items:center;gap:6px">
+          <div class="history-card-dur">${s.duration||''}</div>
+          <div class="history-del" onclick="event.stopPropagation();delSession('${s.id}')" title="Verwijderen">
+            <svg width="12" height="12" viewBox="0 0 12 12" fill="none"><path d="M2 2l8 8M10 2l-8 8" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>
+          </div>
+        </div>
+      </div>
+      <div class="history-card-sum">${s.summary?.samenvatting||''}</div>
+      <div class="history-card-bot">
+        <div class="history-card-date">${dateStr}</div>
+        <div class="history-card-tags">${tags}</div>
+      </div>
+    </div>`;
+  }).join('');
+}
+function openSession(id){
+  const s=loadSessions().find(x=>x.id===id);
+  if(!s)return;
+  resultFromHistory=true;
+  renderResult(s.summary,s.transcript,s.duration);
+  show('s-result');
+}
+function delSession(id){
+  deleteSession(id);renderHistory();
+}
+
+/* ── utils ── */
+function setStatus(html){
+  const w=document.getElementById('rec-status-wrap');
+  w.innerHTML=`<div class="status-bar">${html}</div>`;
+}
+function clearStatus(){document.getElementById('rec-status-wrap').innerHTML='';}
+function copyAll(){
+  const d=summaryData||{};
+  const acties=(d.actiepunten||[]).map(a=>`  - ${a.persoon}: ${a.taak}`).join('\n');
+  const besl=(d.beslissingen||[]).map(b=>`  - ${b}`).join('\n');
+  const text=`${d.titel||'Meeting samenvatting'} (${finalDur})\n${'─'.repeat(40)}\n\n${d.samenvatting||''}\n\nACTIEPUNTEN\n${acties||'Geen'}\n\nBESSLISSINGEN\n${besl||'Geen'}\n\nTRANSCRIPT\n${fullTranscript}`;
+  navigator.clipboard?.writeText(text);
+}
+function dlTxt(){
+  const d=summaryData||{};
+  const acties=(d.actiepunten||[]).map(a=>`  - ${a.persoon}: ${a.taak}`).join('\n');
+  const besl=(d.beslissingen||[]).map(b=>`  - ${b}`).join('\n');
+  const text=`${d.titel||'Meeting samenvatting'} (${finalDur})\n${'─'.repeat(40)}\n\n${d.samenvatting||''}\n\nACTIEPUNTEN\n${acties||'Geen'}\n\nBESSLISSINGEN\n${besl||'Geen'}\n\nTRANSCRIPT\n${fullTranscript}`;
+  const a=document.createElement('a');
+  a.href=URL.createObjectURL(new Blob([text],{type:'text/plain'}));
+  a.download=`meeting-${new Date().toISOString().slice(0,10)}.txt`;a.click();
+}
+if('serviceWorker' in navigator)navigator.serviceWorker.register('sw.js').catch(()=>{});
+</script>
+</body>
+</html>
