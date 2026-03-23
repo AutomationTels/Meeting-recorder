@@ -341,12 +341,7 @@ canvas#wave{position:absolute;inset:0;border-radius:50%;width:100%;height:100%}
         <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="var(--accent)" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3Z"/><path d="M19 10v2a7 7 0 0 1-14 0v-2"/><line x1="12" y1="19" x2="12" y2="22"/></svg>
       </div>
       <h2>Gratis meetings opnemen</h2>
-      <p>Neem op via je microfoon &middot; Automatische transcriptie &amp; Nederlandse samenvatting &middot; Geschiedenis opgeslagen op je apparaat</p>
-    </div>
-    <div class="field-group">
-      <div class="field-label">OpenAI sleutel (Whisper)</div>
-      <input class="field-input" type="password" id="oai-key" placeholder="sk-..." autocomplete="off" spellcheck="false">
-      <div class="field-hint"><a class="pill-link" href="https://platform.openai.com/api-keys" target="_blank">Aanmaken op platform.openai.com</a> &middot; ~€0,50 per meeting van 1,5u</div>
+      <p>Spraakherkenning via je browser (gratis, geen OpenAI nodig) &middot; Samenvatting via Claude &middot; Werkt in Chrome en Edge</p>
     </div>
     <div class="field-group">
       <div class="field-label">Anthropic sleutel (Claude)</div>
@@ -451,56 +446,44 @@ canvas#wave{position:absolute;inset:0;border-radius:50%;width:100%;height:100%}
 
 <script>
 /* ── state ── */
-let oaiKey='',antKey='';
-let mediaRecorder=null,audioCtx=null,analyser=null,waveAnim=null;
+let antKey='';
+let recognition=null,micStream=null,audioCtx=null,analyser=null,waveAnim=null;
 let isRec=false,startTime=null,timerInt=null;
-let chunkIdx=0,transcriptParts=[],queue=[],busy=false;
 let fullTranscript='',summaryData=null,finalDur='';
 let resultFromHistory=false;
+let interimEl=null;
 
 /* ── storage ── */
 function saveSession(obj){
-  try{
-    const all=JSON.parse(localStorage.getItem('meetings')||'[]');
-    all.unshift(obj);
-    localStorage.setItem('meetings',JSON.stringify(all.slice(0,50)));
-  }catch(e){}
+  try{const all=JSON.parse(localStorage.getItem('meetings')||'[]');all.unshift(obj);localStorage.setItem('meetings',JSON.stringify(all.slice(0,50)));}catch(e){}
 }
-function loadSessions(){
-  try{return JSON.parse(localStorage.getItem('meetings')||'[]');}catch{return [];}
-}
-function deleteSession(id){
-  try{
-    const all=loadSessions().filter(s=>s.id!==id);
-    localStorage.setItem('meetings',JSON.stringify(all));
-  }catch(e){}
-}
+function loadSessions(){try{return JSON.parse(localStorage.getItem('meetings')||'[]');}catch{return [];}}
+function deleteSession(id){try{const all=loadSessions().filter(s=>s.id!==id);localStorage.setItem('meetings',JSON.stringify(all));}catch(e){}}
 
 /* ── routing ── */
 function show(id){document.querySelectorAll('.screen').forEach(s=>s.classList.remove('active'));document.getElementById(id).classList.add('active');}
 function showTab(t){
   ['rec','upload','hist'].forEach(x=>{
-    const b=document.getElementById(`tab-${x}-body`);
-    if(b)b.style.display='none';
-    const tb=document.getElementById(`tab-${x}`);
-    if(tb)tb.classList.remove('active');
+    const b=document.getElementById(`tab-${x}-body`);if(b)b.style.display='none';
+    const tb=document.getElementById(`tab-${x}`);if(tb)tb.classList.remove('active');
   });
   const body=document.getElementById(`tab-${t}-body`);
   if(body){body.style.display='flex';body.style.flexDirection='column';}
-  const tab=document.getElementById(`tab-${t}`);
-  if(tab)tab.classList.add('active');
+  const tab=document.getElementById(`tab-${t}`);if(tab)tab.classList.add('active');
   if(t==='hist')renderHistory();
 }
-
 function goSetup(){if(isRec)return;show('s-setup');}
 function goApp(){
-  const oai=document.getElementById('oai-key').value.trim();
   const ant=document.getElementById('ant-key').value.trim();
-  if(!oai||!ant){document.getElementById('setup-err').innerHTML='<div class="err-box">Vul beide sleutels in.</div>';return;}
-  oaiKey=oai;antKey=ant;
+  if(!ant){document.getElementById('setup-err').innerHTML='<div class="err-box">Vul je Anthropic sleutel in.</div>';return;}
+  antKey=ant;
   document.getElementById('setup-err').innerHTML='';
   const d=new Date();
   document.getElementById('app-sub').textContent=d.toLocaleDateString('nl-NL',{weekday:'long',day:'numeric',month:'long'});
+  // Check Web Speech API support
+  if(!('webkitSpeechRecognition' in window||'SpeechRecognition' in window)){
+    document.getElementById('setup-err').innerHTML='<div class="err-box">Je browser ondersteunt geen spraakherkenning. Gebruik Chrome of Edge.</div>';return;
+  }
   show('s-app');
 }
 function goBackFromResult(){
@@ -508,60 +491,74 @@ function goBackFromResult(){
   else show('s-app');
 }
 
-/* ── recording ── */
+/* ── recording via Web Speech API ── */
 async function toggleRec(){
-  if(!isRec)await startRec();
+  if(!isRec) await startRec();
   else stopRec();
 }
+
 async function startRec(){
+  const SpeechRecognition=window.SpeechRecognition||window.webkitSpeechRecognition;
+  recognition=new SpeechRecognition();
+  recognition.lang='nl-NL';
+  recognition.continuous=true;
+  recognition.interimResults=true;
+  recognition.maxAlternatives=1;
+  fullTranscript='';summaryData=null;
+  document.getElementById('chunks').innerHTML='';
+  document.getElementById('chunks-label').style.visibility='hidden';
+
+  // also start mic visualizer
   try{
-    const stream=await navigator.mediaDevices.getUserMedia({audio:true,video:false});
-    setupWave(stream);
-    const mime=getMime();
-    mediaRecorder=new MediaRecorder(stream,mime?{mimeType:mime}:{});
-    transcriptParts=[];queue=[];chunkIdx=0;fullTranscript='';summaryData=null;
-    document.getElementById('chunks').innerHTML='';
-    document.getElementById('chunks-label').style.visibility='hidden';
-    mediaRecorder.ondataavailable=e=>{
-      if(e.data&&e.data.size>100){
-        const idx=++chunkIdx;addPill(idx);
-        queue.push({blob:e.data,idx});processNext();
-      }
-    };
-    // Only finalize AFTER stop event fires and last chunk is queued
-    mediaRecorder.onstop=()=>{
-      isRec=false;
-      if(!queue.length&&!busy) finalize();
-    };
-    mediaRecorder.start(5*60*1000);
-    isRec=true;startTime=Date.now();timerInt=setInterval(tick,500);
-    document.getElementById('rec-btn').className='rec-btn recording';
-    document.getElementById('timer-label').textContent='Opname bezig';
-    document.getElementById('timer').className='timer running';
-    setStatus('<div class="spin"></div>Microfoon actief...');
-  }catch(e){setStatus('Microfoon niet toegankelijk: '+e.message);}
+    micStream=await navigator.mediaDevices.getUserMedia({audio:true});
+    setupWave(micStream);
+  }catch(e){}
+
+  let finalText='';
+  recognition.onresult=e=>{
+    let interim='';
+    for(let i=e.resultIndex;i<e.results.length;i++){
+      if(e.results[i].isFinal) finalText+=e.results[i][0].transcript+' ';
+      else interim+=e.results[i][0].transcript;
+    }
+    fullTranscript=finalText;
+    // show interim in chunks area
+    document.getElementById('chunks-label').style.visibility='visible';
+    document.getElementById('chunks').innerHTML=`<span style="font-size:12px;color:var(--text3);font-style:italic">${interim||'...'}</span>`;
+  };
+  recognition.onerror=e=>{
+    if(e.error==='no-speech') return; // ignore silence
+    setStatus('Spraakherkenning fout: '+e.error);
+  };
+  recognition.onend=()=>{
+    // restart if still recording (browser stops after ~60s silence)
+    if(isRec) recognition.start();
+  };
+
+  recognition.start();
+  isRec=true;startTime=Date.now();timerInt=setInterval(tick,500);
+  document.getElementById('rec-btn').className='rec-btn recording';
+  document.getElementById('timer-label').textContent='Opname bezig';
+  document.getElementById('timer').className='timer running';
+  setStatus('<div class="spin"></div>Luisteren...');
 }
+
 function stopRec(){
-  if(mediaRecorder&&mediaRecorder.state!=='inactive'){
-    finalDur=document.getElementById('timer').textContent;
-    mediaRecorder.stop(); // triggers ondataavailable with last chunk, then onstop
-  }
-  mediaRecorder?.stream.getTracks().forEach(t=>t.stop());
+  isRec=false;
+  if(recognition){recognition.stop();recognition=null;}
+  if(micStream){micStream.getTracks().forEach(t=>t.stop());micStream=null;}
   if(waveAnim){cancelAnimationFrame(waveAnim);waveAnim=null;}
   if(audioCtx){audioCtx.close();audioCtx=null;}
   clearInterval(timerInt);
-  // isRec is set to false in onstop handler, not here
+  finalDur=document.getElementById('timer').textContent;
   document.getElementById('rec-btn').className='rec-btn idle';
   document.getElementById('rec-btn').disabled=true;
   document.getElementById('timer').className='timer';
   document.getElementById('timer-label').textContent='Verwerken...';
-  setStatus('<div class="spin"></div>Opname stoppen en transcriberen...');
+  document.getElementById('chunks').innerHTML='';
+  setTimeout(finalize, 800); // small delay so last words are captured
 }
-function getMime(){
-  for(const t of['audio/webm;codecs=opus','audio/webm','audio/ogg;codecs=opus','audio/mp4',''])
-    if(!t||MediaRecorder.isTypeSupported(t))return t;
-  return '';
-}
+
 function setupWave(stream){
   const canvas=document.getElementById('wave');
   audioCtx=new(window.AudioContext||window.webkitAudioContext)();
@@ -572,107 +569,63 @@ function setupWave(stream){
     waveAnim=requestAnimationFrame(draw);
     const W=canvas.offsetWidth,H=canvas.offsetHeight;
     if(canvas.width!==W||canvas.height!==H){canvas.width=W;canvas.height=H;}
-    const ctx=canvas.getContext('2d');
-    ctx.clearRect(0,0,W,H);
+    const ctx=canvas.getContext('2d');ctx.clearRect(0,0,W,H);
     analyser.getByteFrequencyData(buf);
     const cx=W/2,cy=H/2,baseR=Math.min(W,H)*0.3;
     for(let i=0;i<buf.length;i++){
       const angle=(i/buf.length)*Math.PI*2-Math.PI/2;
       const amp=(buf[i]/255)*baseR*0.5;
-      const r1=baseR,r2=baseR+amp;
       const alpha=isRec?0.5+(buf[i]/255)*0.5:0.12;
       ctx.beginPath();
-      ctx.moveTo(cx+Math.cos(angle)*r1,cy+Math.sin(angle)*r1);
-      ctx.lineTo(cx+Math.cos(angle)*r2,cy+Math.sin(angle)*r2);
+      ctx.moveTo(cx+Math.cos(angle)*baseR,cy+Math.sin(angle)*baseR);
+      ctx.lineTo(cx+Math.cos(angle)*(baseR+amp),cy+Math.sin(angle)*(baseR+amp));
       ctx.strokeStyle=isRec?`rgba(248,113,113,${alpha})`:`rgba(167,139,250,${alpha})`;
       ctx.lineWidth=2.5;ctx.stroke();
     }
   }
   draw();
 }
+
 function tick(){
   if(!startTime)return;
   const s=Math.floor((Date.now()-startTime)/1000);
   const h=Math.floor(s/3600),m=Math.floor((s%3600)/60),sc=s%60;
   document.getElementById('timer').textContent=`${h}:${String(m).padStart(2,'0')}:${String(sc).padStart(2,'0')}`;
 }
-function addPill(idx){
-  document.getElementById('chunks-label').style.visibility='visible';
-  const p=document.createElement('div');
-  p.className='chunk proc';p.id=`pill-${idx}`;p.textContent=`${idx}`;
-  document.getElementById('chunks').appendChild(p);
-}
-async function processNext(){
-  if(busy||!queue.length)return;
-  busy=true;
-  const {blob,idx}=queue.shift();
-  const pill=document.getElementById(`pill-${idx}`);
-  try{
-    const text=await whisper(blob);
-    transcriptParts[idx]=text;
-    if(pill){pill.className='chunk';pill.textContent=idx;}
-  }catch(e){
-    if(pill){pill.className='chunk err';pill.textContent=idx+'!';}
-    setStatus('Fout fragment '+idx+': '+e.message);
-  }
-  busy=false;
-  if(queue.length) processNext();
-  else if(!isRec) finalize(); // isRec is false once onstop has fired
-}
-async function whisper(blob){
-  const fd=new FormData();
-  const ext=blob.type.includes('ogg')?'ogg':blob.type.includes('mp4')?'mp4':'webm';
-  fd.append('file',new File([blob],`audio.${ext}`,{type:blob.type}));
-  fd.append('model','whisper-1');fd.append('language','nl');fd.append('response_format','text');
-  const r=await fetch('https://api.openai.com/v1/audio/transcriptions',{
-    method:'POST',headers:{Authorization:`Bearer ${oaiKey}`},body:fd
-  });
-  if(!r.ok){const e=await r.json();throw new Error(e.error?.message||r.statusText);}
-  return await r.text();
-}
+
 async function finalize(){
-  if(queue.length||busy){setTimeout(finalize,600);return;}
-  fullTranscript=transcriptParts.filter(Boolean).join('\n\n').trim();
-  if(!fullTranscript){
-    setStatus('Geen spraak herkend. Probeer opnieuw.');
+  if(!fullTranscript.trim()){
+    setStatus('Geen spraak herkend. Probeer opnieuw — spreek duidelijk in het Nederlands.');
     resetRecBtn();return;
   }
   setStatus('<div class="spin"></div>Claude maakt samenvatting...');
   try{
     summaryData=await claudeSummarize(fullTranscript);
-    const session={
-      id:Date.now()+'',
-      date:new Date().toISOString(),
-      duration:finalDur,
-      summary:summaryData,
-      transcript:fullTranscript
-    };
+    const session={id:Date.now()+'',date:new Date().toISOString(),duration:finalDur,summary:summaryData,transcript:fullTranscript};
     saveSession(session);
-    clearStatus();
-    resultFromHistory=false;
+    clearStatus();resultFromHistory=false;
     renderResult(summaryData,fullTranscript,finalDur);
-    show('s-result');
-    resetRecBtn();
+    show('s-result');resetRecBtn();
   }catch(e){
-    setStatus('Samenvatting fout: '+e.message);
-    resetRecBtn();
+    setStatus('Samenvatting fout: '+e.message);resetRecBtn();
   }
 }
+
 function resetRecBtn(){
   document.getElementById('rec-btn').disabled=false;
   document.getElementById('rec-btn').className='rec-btn idle';
   document.getElementById('timer-label').textContent='Klaar om op te nemen';
   document.getElementById('timer').textContent='0:00:00';
   document.getElementById('timer').className='timer';
-  chunkIdx=0;transcriptParts=[];queue=[];busy=false;
 }
+
 async function claudeSummarize(transcript){
-  const r=await fetch('https://api.anthropic.com/v1/messages',{
-    method:'POST',
-    headers:{'Content-Type':'application/json','anthropic-version':'2023-06-01'},
-    body:JSON.stringify({
-      model:'claude-sonnet-4-20250514',max_tokens:1500,
-      messages:[{role:'user',content:`Je bent een professionele notulist. Analyseer dit transcript en antwoord UITSLUITEND als geldig JSON zonder uitleg of backticks.
+  const prompt=`Je bent een professionele notulist. Analyseer dit transcript en antwoord UITSLUITEND als geldig JSON zonder uitleg of backticks.
+
+Het transcript heeft GEEN sprekerslabels omdat het via browserspraakherkenning is opgenomen. Analyseer de inhoud zorgvuldig:
+- Identificeer hoeveel verschillende sprekers er zijn op basis van gesprekspatronen, wisselingen van onderwerp, vraag-antwoord structuren en stijlverschillen
+- Label ze als "Spreker 1", "Spreker 2" etc. (of gebruik namen als die genoemd worden in het gesprek)
+- Wijs actiepunten en bijdragen toe aan de juiste spreker
 
 Transcript:
 ${transcript.slice(0,14000)}
@@ -681,10 +634,28 @@ JSON formaat:
 {
   "titel": "Korte beschrijvende titel van de meeting (max 6 woorden)",
   "samenvatting": "3-5 zinnen in het Nederlands",
-  "actiepunten": [{"persoon": "naam of Onbekend", "taak": "beschrijving"}],
+  "sprekers": [
+    {
+      "naam": "Spreker 1",
+      "rol": "Korte omschrijving van rol of bijdrage",
+      "bijdrage": "Wat heeft deze persoon hoofdzakelijk gezegd of ingebracht?"
+    }
+  ],
+  "actiepunten": [{"persoon": "Spreker 1 of naam", "taak": "beschrijving"}],
   "beslissingen": ["beslissing 1"],
   "onderwerpen": ["onderwerp 1","onderwerp 2"]
-}`}]
+}`;
+  const r=await fetch('https://api.anthropic.com/v1/messages',{
+    method:'POST',
+    headers:{
+      'Content-Type':'application/json',
+      'anthropic-version':'2023-06-01',
+      'x-api-key':antKey,
+      'anthropic-dangerous-direct-browser-access':'true'
+    },
+    body:JSON.stringify({
+      model:'claude-sonnet-4-20250514',max_tokens:2000,
+      messages:[{role:'user',content:prompt}]
     })
   });
   const d=await r.json();
@@ -701,32 +672,31 @@ function renderResult(d,transcript,dur){
   const acties=(d.actiepunten||[]).map(a=>`
     <div class="action-item">
       <div class="acheck"><svg width="10" height="10" viewBox="0 0 10 10" fill="none"><path d="M2 5l2.5 2.5L8 3" stroke="var(--green)" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg></div>
-      <div>
-        <div class="action-task">${a.taak}</div>
-        <span class="action-who">${a.persoon||'Onbekend'}</span>
-      </div>
+      <div><div class="action-task">${a.taak}</div><span class="action-who">${a.persoon||'Onbekend'}</span></div>
     </div>`).join('');
   const besls=(d.beslissingen||[]).map(b=>`
-    <div class="dec-item">
-      <div class="dec-dot"></div>
-      <div class="dec-text">${b}</div>
+    <div class="dec-item"><div class="dec-dot"></div><div class="dec-text">${b}</div></div>`).join('');
+  const sprekerKleuren=['var(--accent)','var(--green)','var(--amber)','var(--red)','var(--text2)'];
+  const sprekers=(d.sprekers||[]).map((s,i)=>`
+    <div class="action-item">
+      <div style="width:32px;height:32px;border-radius:50%;flex-shrink:0;display:flex;align-items:center;justify-content:center;font-size:12px;font-weight:500;background:var(--bg3);border:1.5px solid ${sprekerKleuren[i%sprekerKleuren.length]};color:${sprekerKleuren[i%sprekerKleuren.length]}">${i+1}</div>
+      <div>
+        <div style="font-size:14px;font-weight:500;color:var(--text)">${s.naam}</div>
+        <div style="font-size:12px;color:var(--text3);margin-top:2px">${s.rol||''}</div>
+        <div style="font-size:13px;color:var(--text2);margin-top:4px;line-height:1.5">${s.bijdrage||''}</div>
+      </div>
     </div>`).join('');
   document.getElementById('result-body').innerHTML=`
     ${d.titel?`<div style="padding:4px 0 8px"><div style="font-size:20px;font-weight:500;color:var(--text);line-height:1.3">${d.titel}</div></div>`:''}
     ${tags?`<div class="rsection"><div class="tag-row">${tags}</div></div>`:''}
-    <div class="rsection">
-      <div class="rsection-head">Samenvatting</div>
-      <div class="rsection-body"><div class="summary-text">${d.samenvatting||'—'}</div></div>
-    </div>
+    <div class="rsection"><div class="rsection-head">Samenvatting</div><div class="rsection-body"><div class="summary-text">${d.samenvatting||'—'}</div></div></div>
+    ${sprekers?`<div class="rsection"><div class="rsection-head">Sprekers</div><div class="rsection-body">${sprekers}</div></div>`:''}
     ${acties?`<div class="rsection"><div class="rsection-head">Actiepunten</div><div class="rsection-body">${acties}</div></div>`:''}
     ${besls?`<div class="rsection"><div class="rsection-head">Beslissingen</div><div class="rsection-body">${besls}</div></div>`:''}
-    <div class="rsection">
-      <div class="rsection-head">Volledig transcript</div>
-      <pre class="transcript-pre">${(transcript||'').replace(/</g,'&lt;')}</pre>
-    </div>`;
+    <div class="rsection"><div class="rsection-head">Volledig transcript</div><pre class="transcript-pre">${(transcript||'').replace(/</g,'&lt;')}</pre></div>`;
 }
 
-/* ── upload file ── */
+/* ── upload file (still needs proxy - show helpful message) ── */
 let uploadFile=null;
 function onFileChosen(file){
   if(!file)return;
@@ -734,16 +704,9 @@ function onFileChosen(file){
   const mb=(file.size/1024/1024).toFixed(1);
   document.getElementById('file-preview').style.display='flex';
   document.getElementById('file-preview').innerHTML=`
-    <div class="file-icon">
-      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="var(--accent)" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M9 18V5l12-2v13"/><circle cx="6" cy="18" r="3"/><circle cx="18" cy="16" r="3"/></svg>
-    </div>
-    <div class="file-info">
-      <div class="file-name">${file.name}</div>
-      <div class="file-meta">${mb} MB &middot; ${file.type||'audio'}</div>
-    </div>
-    <div class="file-clear" onclick="clearUpload()">
-      <svg width="12" height="12" viewBox="0 0 12 12" fill="none"><path d="M2 2l8 8M10 2l-8 8" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>
-    </div>`;
+    <div class="file-icon"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="var(--accent)" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M9 18V5l12-2v13"/><circle cx="6" cy="18" r="3"/><circle cx="18" cy="16" r="3"/></svg></div>
+    <div class="file-info"><div class="file-name">${file.name}</div><div class="file-meta">${mb} MB &middot; ${file.type||'audio'}</div></div>
+    <div class="file-clear" onclick="clearUpload()"><svg width="12" height="12" viewBox="0 0 12 12" fill="none"><path d="M2 2l8 8M10 2l-8 8" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg></div>`;
   document.getElementById('upload-btn').disabled=false;
   document.getElementById('upload-status').innerHTML='';
 }
@@ -773,77 +736,50 @@ async function processUpload(){
     saveSession(session);
     document.getElementById('upload-progress').style.display='none';
     setUploadStatus('');
-    resultFromHistory=false;
-    finalDur=uploadFile.name;
+    resultFromHistory=false;finalDur=uploadFile.name;
     renderResult(summary,transcript,uploadFile.name);
-    show('s-result');
-    clearUpload();
-    btn.disabled=false;
+    show('s-result');clearUpload();btn.disabled=false;
   }catch(e){
     setUploadStatus(`<span style="color:var(--red)">${e.message}</span>`);
     document.getElementById('upload-progress').style.display='none';
     btn.disabled=false;
   }
 }
-
-/* Slice file into ≤24MB byte chunks, send each to Whisper directly.
-   No decoding in browser — works for any format including large mp4. */
 async function transcribeByteChunks(file){
-  const CHUNK=20*1024*1024; // 20MB per chunk — safe margin under 25MB Whisper limit
+  const CHUNK=20*1024*1024;
   const total=file.size;
   const numChunks=Math.ceil(total/CHUNK);
   const ext=file.name.split('.').pop().toLowerCase()||'mp4';
-  // Whisper accepts these container formats directly
-  const mimeMap={mp3:'audio/mpeg',mp4:'video/mp4',m4a:'audio/mp4',wav:'audio/wav',webm:'audio/webm',ogg:'audio/ogg',oga:'audio/ogg',flac:'audio/flac'};
+  const mimeMap={mp3:'audio/mpeg',mp4:'video/mp4',m4a:'audio/mp4',wav:'audio/wav',webm:'audio/webm',ogg:'audio/ogg',flac:'audio/flac'};
   const mime=mimeMap[ext]||file.type||'video/mp4';
   const parts=[];
   for(let i=0;i<numChunks;i++){
-    const start=i*CHUNK;
-    const end=Math.min(start+CHUNK,total);
+    const start=i*CHUNK,end=Math.min(start+CHUNK,total);
     const slice=file.slice(start,end,mime);
-    setUploadStatus(`<div class="spin"></div>Fragment ${i+1} van ${numChunks} transcriberen… (${Math.round(end/1024/1024)}/${Math.round(total/1024/1024)} MB)`);
+    setUploadStatus(`<div class="spin"></div>Fragment ${i+1} van ${numChunks} transcriberen…`);
     setProgress(5+Math.round(((i+1)/numChunks)*80));
     const fd=new FormData();
     fd.append('file',new File([slice],`part${i+1}.${ext}`,{type:mime}));
-    fd.append('model','whisper-1');
-    fd.append('language','nl');
-    fd.append('response_format','text');
+    fd.append('model','whisper-1');fd.append('language','nl');fd.append('response_format','text');
     const r=await fetch('https://api.openai.com/v1/audio/transcriptions',{
-      method:'POST',headers:{Authorization:`Bearer ${oaiKey}`},body:fd
+      method:'POST',headers:{Authorization:`Bearer ${document.getElementById('oai-key')?.value||''}`},body:fd
     });
-    if(!r.ok){
-      const err=await r.json().catch(()=>({error:{message:r.statusText}}));
-      // If chunk fails because it's mid-container, try sending whole file (small files only)
-      if(numChunks===1)throw new Error(err.error?.message||r.statusText);
-      // For multi-chunk failures on container formats, warn and continue
-      console.warn('Chunk '+(i+1)+' failed:',err.error?.message);
+    if(!r.ok){const err=await r.json().catch(()=>({error:{message:r.statusText}}));
+      if(i===0)throw new Error('Bestand uploaden werkt niet vanuit de browser vanwege beveiligingsbeperkingen van OpenAI. Gebruik de opname-functie in plaats daarvan.');
       parts.push('');
-    } else {
-      parts.push(await r.text());
-    }
+    }else{parts.push(await r.text());}
   }
   return parts.filter(Boolean).join('\n\n');
 }
-function setProgress(pct){
-  const f=document.getElementById('progress-fill');
-  if(f)f.style.width=pct+'%';
-}
-function setUploadStatus(html){
-  const w=document.getElementById('upload-status');
-  if(w)w.innerHTML=html?`<div class="status-bar" style="margin-top:0">${html}</div>`:'';
-}
+function setProgress(pct){const f=document.getElementById('progress-fill');if(f)f.style.width=pct+'%';}
+function setUploadStatus(html){const w=document.getElementById('upload-status');if(w)w.innerHTML=html?`<div class="status-bar" style="margin-top:0">${html}</div>`:'';}
 
 /* ── history ── */
 function renderHistory(){
   const sessions=loadSessions();
   const body=document.getElementById('history-body');
   if(!sessions.length){
-    body.innerHTML=`<div class="history-empty">
-      <div class="history-empty-icon">
-        <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="var(--text3)" stroke-width="1.5" stroke-linecap="round"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
-      </div>
-      <p>Nog geen opnames.<br>Je eerste meeting verschijnt hier na de samenvatting.</p>
-    </div>`;
+    body.innerHTML=`<div class="history-empty"><div class="history-empty-icon"><svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="var(--text3)" stroke-width="1.5" stroke-linecap="round"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg></div><p>Nog geen opnames.<br>Je eerste meeting verschijnt hier na de samenvatting.</p></div>`;
     return;
   }
   body.innerHTML=sessions.map(s=>{
@@ -855,35 +791,22 @@ function renderHistory(){
         <div class="history-card-title">${s.summary?.titel||'Meeting'}</div>
         <div style="display:flex;align-items:center;gap:6px">
           <div class="history-card-dur">${s.duration||''}</div>
-          <div class="history-del" onclick="event.stopPropagation();delSession('${s.id}')" title="Verwijderen">
-            <svg width="12" height="12" viewBox="0 0 12 12" fill="none"><path d="M2 2l8 8M10 2l-8 8" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>
-          </div>
+          <div class="history-del" onclick="event.stopPropagation();delSession('${s.id}')" title="Verwijderen"><svg width="12" height="12" viewBox="0 0 12 12" fill="none"><path d="M2 2l8 8M10 2l-8 8" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg></div>
         </div>
       </div>
       <div class="history-card-sum">${s.summary?.samenvatting||''}</div>
-      <div class="history-card-bot">
-        <div class="history-card-date">${dateStr}</div>
-        <div class="history-card-tags">${tags}</div>
-      </div>
+      <div class="history-card-bot"><div class="history-card-date">${dateStr}</div><div class="history-card-tags">${tags}</div></div>
     </div>`;
   }).join('');
 }
 function openSession(id){
-  const s=loadSessions().find(x=>x.id===id);
-  if(!s)return;
-  resultFromHistory=true;
-  renderResult(s.summary,s.transcript,s.duration);
-  show('s-result');
+  const s=loadSessions().find(x=>x.id===id);if(!s)return;
+  resultFromHistory=true;renderResult(s.summary,s.transcript,s.duration);show('s-result');
 }
-function delSession(id){
-  deleteSession(id);renderHistory();
-}
+function delSession(id){deleteSession(id);renderHistory();}
 
 /* ── utils ── */
-function setStatus(html){
-  const w=document.getElementById('rec-status-wrap');
-  w.innerHTML=`<div class="status-bar">${html}</div>`;
-}
+function setStatus(html){const w=document.getElementById('rec-status-wrap');w.innerHTML=`<div class="status-bar">${html}</div>`;}
 function clearStatus(){document.getElementById('rec-status-wrap').innerHTML='';}
 function copyAll(){
   const d=summaryData||{};
